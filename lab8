@@ -1,0 +1,252 @@
+code1
+
+#include <Arduino.h>
+
+const int buttonpPin = 2; 
+//const int ledPin = 13;
+volatile bool ledState = false;
+
+void toggleLED(){
+  ledState = !ledState;
+  
+}
+
+void setup() {
+ pinMode(LED_BUILTIN,OUTPUT);
+ pinMode(buttonpPin,INPUT_PULLUP);
+ attachInterrupt(digitalPinToInterrupt(buttonpPin),toggleLED,FALLING);
+}
+
+void loop() {
+ digitalWrite(LED_BUILTIN,ledState);
+}
+
+
+code 2
+#include <Arduino.h>
+#include <avr/interrupt.h>
+
+
+//const int buttonpPin = 2; 
+//const int ledPin = 13;
+volatile bool ledState = false;
+void setup() {
+ pinMode(LED_BUILTIN,OUTPUT);
+
+ cli();
+
+ TCCR1A = 0;
+ TCCR1B = 0;
+
+
+ TCCR1B |= (1 << WGM12);
+ TCCR1B |= (1 << CS12) | (1 << CS10);
+ OCR1A = 15624;
+ TIMSK1 |= (1 << OCIE1A);
+
+ sei();
+}
+
+ ISR(TIMER1_COMPA_vect){
+  ledState = !ledState;
+  digitalWrite(LED_BUILTIN,ledState);
+ }
+
+void loop() {
+ 
+}
+
+
+
+code 3
+#include <Arduino.h>
+#include <avr/interrupt.h>
+
+
+const int buttonpPin = 2; 
+//const int ledPin = 13;
+volatile bool timerRunning = false;
+
+void toggleTimer(){
+  timerRunning = !timerRunning;
+}
+
+
+void setup() {
+ pinMode(LED_BUILTIN,OUTPUT);
+ pinMode(buttonpPin,INPUT_PULLUP);
+ attachInterrupt(digitalPinToInterrupt(buttonpPin),toggleTimer,FALLING);
+
+ cli();
+ TCCR1A = 0;
+ TCCR1B = 0;
+ TCCR1B |= (1 << WGM12);
+ TCCR1B |= (1 << CS12) | (1 << CS10);
+ OCR1A = 15624;
+ TIMSK1 |= (1 << OCIE1A);
+ sei();
+}
+
+ ISR(TIMER1_COMPA_vect){
+  if(timerRunning){
+    digitalWrite(LED_BUILTIN,!digitalRead(LED_BUILTIN));
+ }
+  }
+  
+
+void loop() {
+ 
+}
+
+
+
+
+code จับเวลา
+#include <Arduino.h>
+#include <avr/interrupt.h>
+
+const int buttonPin = 2;  // ปุ่มเริ่ม/หยุดจับเวลา
+const int ledPin = 13;    // ไฟ LED แสดงสถานะจับเวลา
+volatile bool timerRunning = false;  // สถานะการทำงานของ Timer
+volatile unsigned long seconds = 0;  // จับเวลาหน่วยวินาที
+volatile unsigned long minutes = 0;  // จับเวลาหน่วยนาที
+
+// ฟังก์ชันเริ่ม/หยุดจับเวลา (และรีเซ็ตค่าเมื่อหยุด)
+void toggleTimer() {
+    if (timerRunning) {
+        // หยุดจับเวลา + รีเซ็ตค่า
+        timerRunning = false;
+        seconds = 0;
+        minutes = 0;
+        Serial.println("⏸ Timer Stopped & Reset");
+    } else {
+        // เริ่มจับเวลาใหม่
+        timerRunning = true;
+        Serial.println("▶ Timer Started");
+    }
+}
+
+void setup() {
+    Serial.begin(9600);
+    
+    pinMode(ledPin, OUTPUT);
+    pinMode(buttonPin, INPUT_PULLUP);
+
+    attachInterrupt(digitalPinToInterrupt(buttonPin), toggleTimer, FALLING);  // ตั้งค่าปุ่มอินเทอร์รัพท์
+
+    cli(); // ปิดอินเทอร์รัพท์ชั่วคราวเพื่อตั้งค่า Timer1
+    TCCR1A = 0;
+    TCCR1B = 0;
+    TCNT1 = 0;
+
+    OCR1A = 15624;  // ตั้งค่าให้ Timer1 ทำงานทุก 1 วินาที (16MHz / 1024 prescaler)
+    TCCR1B |= (1 << WGM12);  // ใช้โหมด CTC
+    TCCR1B |= (1 << CS12) | (1 << CS10);  // Prescaler 1024
+    TIMSK1 |= (1 << OCIE1A);  // เปิด Timer1 Compare Match Interrupt
+    sei(); // เปิดอินเทอร์รัพท์
+}
+
+// อินเทอร์รัพท์ Timer ทำงานทุก 1 วินาที
+ISR(TIMER1_COMPA_vect) {
+    if (timerRunning) {
+        seconds++;  // เพิ่มเวลาทีละวินาที
+        digitalWrite(ledPin, !digitalRead(ledPin));  // กะพริบ LED ทุกวินาที
+        
+        // ถ้าเวลาครบ 60 วินาที → เพิ่มค่าเป็น 1 นาที
+        if (seconds >= 60) {
+            seconds = 0;
+            minutes++;
+            Serial.print("⏱ Timer: ");
+            Serial.print(minutes);
+            Serial.println(" minute(s)");
+        } else {
+            // แสดงเวลาทุกวินาที
+            Serial.print("⏳ Time: ");
+            Serial.print(minutes);
+            Serial.print(" min ");
+            Serial.print(seconds);
+            Serial.println(" sec");
+        }
+    }
+}
+
+void loop() {
+    // วนลูปว่าง เนื่องจากใช้ Interrupt เป็นตัวทำงาน
+}
+
+
+
+
+การบ้านข้อ2
+#include <Arduino.h>
+#include <avr/interrupt.h>
+
+const int buttonPin = 2;  // ปุ่มกดเริ่มนับ
+const int ledPin = 13;    // LED แสดงสถานะจับเวลา
+
+volatile bool timerRunning = false;   // สถานะจับเวลา
+volatile unsigned long seconds = 0;   // ตัวแปรนับวินาที
+volatile unsigned int pressCount = 0; // จำนวนครั้งที่กดปุ่ม
+
+// ฟังก์ชันขัดจังหวะปุ่มกด
+void countPress() {
+    if (!timerRunning) {
+        timerRunning = true; // เริ่มจับเวลา
+        seconds = 0;         // รีเซ็ตเวลานับใหม่
+        pressCount = 1;      // ตั้งค่า RPM เป็น 1
+        Serial.println("▶ Timer Started, RPM = 1");
+    } else {
+        pressCount++; // นับจำนวนครั้งที่กดปุ่มเพิ่ม
+    }
+}
+
+void setup() {
+    Serial.begin(9600);
+    
+    pinMode(ledPin, OUTPUT);
+    pinMode(buttonPin, INPUT_PULLUP);
+
+    attachInterrupt(digitalPinToInterrupt(buttonPin), countPress, FALLING); // ปุ่มเริ่มจับเวลา
+
+    cli(); // ปิดอินเทอร์รัพท์ชั่วคราวเพื่อตั้งค่า Timer1
+    TCCR1A = 0;
+    TCCR1B = 0;
+    TCNT1 = 0;
+
+    OCR1A = 15624;  // ตั้งค่าให้ Timer1 ทำงานทุก 1 วินาที (16MHz / 1024 prescaler)
+    TCCR1B |= (1 << WGM12);  // ใช้โหมด CTC
+    TCCR1B |= (1 << CS12) | (1 << CS10);  // Prescaler 1024
+    TIMSK1 |= (1 << OCIE1A);  // เปิด Timer1 Compare Match Interrupt
+    sei(); // เปิดอินเทอร์รัพท์
+}
+
+// อินเทอร์รัพท์ Timer ทำงานทุก 1 วินาที
+ISR(TIMER1_COMPA_vect) {
+    if (timerRunning) {
+        seconds++;  // เพิ่มเวลาทีละวินาที
+        digitalWrite(ledPin, !digitalRead(ledPin));  // กะพริบ LED ทุกวินาที
+
+        // แสดงผลเวลาที่ผ่านไป
+        Serial.print("⏳ Time: ");
+        Serial.print(seconds);
+        Serial.print(" sec | ⚙ RPM: ");
+        Serial.println(pressCount);
+
+        // ครบ 60 วินาที
+        if (seconds >= 60) {
+            Serial.print("⏱ 60 sec completed! Total Press Count: ");
+            Serial.println(pressCount);
+            timerRunning = false; // หยุดจับเวลา
+            digitalWrite(ledPin, LOW);
+        }
+    }
+}
+
+void loop() {
+    // ใช้ Interrupt จึงไม่ต้องมีโค้ดใน loop()
+}
+
+
+
+
+
