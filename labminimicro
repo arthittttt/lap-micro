@@ -1,0 +1,239 @@
+ตอนที่1
+#include <Arduino.h>
+
+#define DT 4 //HX716 Data Pin
+#define SCK 5 // HX716 Clock Pin
+
+const int IN1 = 7;
+const int IN2 = 8;
+const int ENA = 9;
+
+long offset = -10.802;   // Zero-pressure ADC reading
+float scaleFactor = 40.0 / 16777216.0; //48kPa full range
+
+
+long readHX710() {
+  long count = 0;
+  pinMode(DT, INPUT);
+  for (int i=0; i < 24; i++) {
+      digitalWrite(SCK, HIGH);
+      delayMicroseconds(1);
+      count = count << 1;
+      digitalWrite(SCK, LOW);
+      if (digitalRead(DT)) count++;
+  }
+  digitalWrite(SCK, HIGH);
+  delayMicroseconds(1);
+  digitalWrite(SCK, LOW);
+  return count;
+}
+
+void setup() {
+  Serial.begin (9600);
+  pinMode(SCK, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(ENA, OUTPUT);
+}
+
+void loop() {
+   long rawValue = readHX710();
+   Serial.print ("Raw ADC Value:");
+   Serial.println(rawValue);
+   delay (500);
+   analogWrite(ENA, 200); // Set speed (8-2555)
+
+   // Move Forward
+   digitalWrite(IN1, HIGH);
+   digitalWrite(IN2, LOW);
+   delay (3000);
+
+   
+    //Stop
+   digitalWrite(IN1, LOW);
+   digitalWrite(IN2, LOW);
+   delay (1000);
+
+   float pressure = ((rawValue *1/100000) - offset); // Convert to kPa
+   Serial.print ("Raw ADC: ");
+   Serial.print (rawValue);
+   Serial.print(" | Pressure: ");
+   Serial.print(pressure, 2);
+   Serial.println(" mmHg");
+   delay (500);
+
+}
+
+
+
+
+ที่ค.ดันเป็น0
+#include <Arduino.h>
+
+#define DT 4 //HX716 Data Pin
+#define SCK 5 // HX716 Clock Pin
+
+const int IN1 = 7;
+const int IN2 = 8;
+const int ENA = 9;
+
+long offset = 18.491;   // Zero-pressure ADC reading
+float scaleFactor = 40.0 / 16777216.0; //48kPa full range
+
+
+long readHX710() {
+  long count = 0;
+  pinMode(DT, INPUT);
+  for (int i=0; i < 24; i++) {
+      digitalWrite(SCK, HIGH);
+      delayMicroseconds(1);
+      count = count << 1;
+      digitalWrite(SCK, LOW);
+      if (digitalRead(DT)) count++;
+  }
+  digitalWrite(SCK, HIGH);
+  delayMicroseconds(1);
+  digitalWrite(SCK, LOW);
+  return count;
+}
+
+void setup() {
+  Serial.begin (9600);
+  pinMode(SCK, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(ENA, OUTPUT);
+}
+
+void loop() {
+   long rawValue = readHX710();
+   /*Serial.print ("Raw ADC Value:");
+   Serial.println(rawValue);
+   delay (500);
+   analogWrite(ENA, 200); // Set speed (8-2555)
+
+   // Move Forward
+   digitalWrite(IN1, HIGH);
+   digitalWrite(IN2, LOW);
+   delay (3000);
+
+   
+   // Stop
+   digitalWrite(IN1, LOW);
+   digitalWrite(IN2, LOW);
+   delay (1000);*/
+
+   float pressure = ((rawValue *1/100000)-offset) ; // Convert to kPa
+   Serial.print ("Raw ADC: ");
+   Serial.print (rawValue);
+   Serial.print(" | Pressure: ");
+   Serial.print(pressure, 2);
+   Serial.println(" mmHg");
+   delay (500);
+
+}
+
+
+
+
+หาerror
+#include <Arduino.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+const int IN1 = 7;
+const int IN2 = 8;
+const int ENA = 9;
+#define DT 4
+#define SCK 5
+long offset = 19.491; //change this from excel
+float scaleFactor = 40.0/ 1777216.0;
+
+long readHX710() {
+  long count = 0;
+  pinMode(DT, INPUT);
+  for (int i = 0; i < 24; i++) {
+    digitalWrite(SCK, HIGH);
+    delayMicroseconds(1);
+    count = count << 1;
+    digitalWrite(SCK, LOW);
+    if (digitalRead(DT)) count ++;
+  }
+  digitalWrite(SCK, HIGH);
+  delayMicroseconds(1);
+  digitalWrite(SCK, LOW);
+  return count;
+}
+
+
+void setup() {
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(ENA, OUTPUT);
+
+  Serial.begin(9600);
+  pinMode(SCK, OUTPUT);
+  
+  Serial.begin(9600);
+
+
+    if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;);  
+  }
+
+
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(1.5);
+  display.setCursor(0, 0);
+  display.println("Blood Pressure Monitor");
+  display.display();
+  delay(1000); 
+}
+
+
+void loop() {
+  long rawValue = readHX710();
+  //float pressure = ((rawValue - offset) * scaleFactor) - 0.16;
+  float pressure = ((rawValue * 1/80000) - offset); //change 1/x from excel 
+  Serial.print("Raw ADC Value: ");
+  Serial.print(rawValue);
+  Serial.print(" | Pressure: ");
+  Serial.print(pressure, 2);
+  Serial.println(" mmHg");
+
+  delay(500);
+ 
+  //analogWrite(ENA, 255);
+
+  //Move Forward
+  //digitalWrite(IN1, HIGH);
+  //digitalWrite(IN2, LOW);
+  //delay(1500);
+
+  //Stop
+  //digitalWrite(IN1, LOW);
+  //digitalWrite(IN2, LOW);
+  //delay(1000);
+
+  display.clearDisplay();
+  //Display systolic
+  display.setCursor(0, 0);  
+  display.print("Raw ADC Value:");
+  display.print(rawValue);
+
+  //Display diastolic
+  display.setCursor(0, 16);  
+  display.print("Pressure:");
+  display.print(pressure, 2);
+  display.println(" mmHg");
+
+
+  display.display();
+  delay(1000);
+}
