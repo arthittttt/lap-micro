@@ -1,0 +1,475 @@
+mini
+#include <Arduino.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+const int IN1 = 7;
+const int IN2 = 8;
+const int ENA = 9;
+#define DT 4
+#define SCK 5
+
+const int RELAY_PIN = 13;
+const int BUTTON_IN = 6;
+
+const int BUTTON_OUT = 3;
+
+long offset = 19.491; //change this from excel
+float scaleFactor = 40.0/ 1777216.0;
+
+long readHX710() {
+  long count = 0;
+  pinMode(DT, INPUT);
+  for (int i = 0; i < 24; i++) {
+    digitalWrite(SCK, HIGH);
+    delayMicroseconds(1);
+    count = count << 1;
+    digitalWrite(SCK, LOW);
+    if (digitalRead(DT)) count ++;
+  }
+  digitalWrite(SCK, HIGH);
+  delayMicroseconds(1);
+  digitalWrite(SCK, LOW);
+  return count;
+}
+
+
+void setup() {
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(ENA, OUTPUT);
+
+  Serial.begin(9600);
+  pinMode(SCK, OUTPUT);
+  
+  Serial.begin(9600);
+
+
+    if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;);  
+  }
+
+
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(1.5);
+  display.setCursor(0, 0);
+  display.println("Blood Pressure Monitor");
+  display.display();
+  delay(1000); 
+}
+
+
+void loop() {
+  long rawValue = readHX710();
+  //float pressure = ((rawValue - offset) * scaleFactor) - 0.16;
+  float pressure = ((rawValue * 1/80000) - offset); //change 1/x from excel 
+  Serial.print("Raw ADC Value: ");
+  Serial.print(rawValue);
+  Serial.print(" | Pressure: ");
+  Serial.print(pressure, 2);
+  Serial.println(" mmHg");
+
+  delay(500);
+ 
+  //analogWrite(ENA, 255);
+
+  //Move Forward
+  //digitalWrite(IN1, HIGH);
+  //digitalWrite(IN2, LOW);
+  //delay(1500);
+
+  //Stop
+  //digitalWrite(IN1, LOW);
+  //digitalWrite(IN2, LOW);
+  //delay(1000);
+
+  display.clearDisplay();
+  //Display systolic
+  display.setCursor(0, 0);  
+  display.print("Raw ADC Value:");
+  display.print(rawValue);
+
+  //Display diastolic
+  display.setCursor(0, 16);  
+  display.print("Pressure:");
+  display.print(pressure, 2);
+  display.println(" mmHg");
+
+
+  display.display();
+  delay(1000);
+}
+
+
+
+#include <Arduino.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define DT 4
+#define SCK 5
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+long offset = 19.491;
+float scaleFactor = 40.0 / 16777216.0;
+
+// พินควบคุมโซลินอยด์ (Solenoid) และมอเตอร์
+const int IN1 = 7;  // พินควบคุมโซลินอยด์ (Solenoid)
+const int IN2 = 8;  // พินควบคุมโซลินอยด์ (Solenoid)
+const int ENA = 9;  // พินควบคุมมอเตอร์ (Motor)
+const int IN = 11;
+// พินควบคุมสวิตช์ (Switch)
+const int SWITCH_PIN = 6;  // พินสวิตช์ (Input)
+
+long readHX710() {
+    long count = 0;
+    pinMode(DT, INPUT);
+    for (int i = 0; i < 24; i++) {
+        digitalWrite(SCK, HIGH);
+        delay(1000);
+        count = count << 1;
+        digitalWrite(SCK, LOW);
+        if (digitalRead(DT)) count++;
+    }
+    digitalWrite(SCK, HIGH);
+    delay(1000);
+    digitalWrite(SCK, LOW);
+    return count;
+}
+
+void setup() {
+    Serial.begin(9600);
+
+    if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+        Serial.println(F("SSD1306 allocation failed"));
+        while (true);
+    }
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+    display.display();
+
+    // ตั้งค่าพิน
+    pinMode(SCK, OUTPUT);
+    pinMode(IN1, OUTPUT); // ตั้งค่าโซลินอยด์เป็น OUTPUT // ตั้งค่าโซลินอยด์เป็น OUTPUT
+    pinMode(IN2, OUTPUT);
+    pinMode(IN, OUTPUT);
+    pinMode(ENA, OUTPUT); // ตั้งค่ามอเตอร์เป็น OUTPUT
+    pinMode(SWITCH_PIN, INPUT); // ตั้งค่าสวิตช์เป็น INPUT
+}
+void controlSolenoid(bool state) {
+    if (state) {
+        // เปิดโซลินอยด์ (เชื่อมต่อ IN1, IN2)
+        digitalWrite(IN1, HIGH);
+        digitalWrite(IN2, LOW);
+    } else {
+        // ปิดโซลินอยด์
+        digitalWrite(IN1, LOW);
+        digitalWrite(IN2, LOW);
+    }
+}
+
+void controlMotor(int speed) {
+    // ควบคุมมอเตอร์ด้วยความเร็วที่กำหนด (ค่า 0-255)
+    analogWrite(ENA, speed);
+}
+
+unsigned long pressureReachedTime = 0;
+bool isPressureHigh = false; // เวลารอ 3 วินาที
+int t=0;
+
+
+void loop() {
+    long rawValue = readHX710();
+    float pressure = ((rawValue * 1/80000) - offset);
+   
+  // อ่านสถานะของสวิตช์ (HIGH เมื่อกด, LOW เมื่อปล่อย)
+    int switchState = digitalRead(SWITCH_PIN);
+    
+    // ถ้าสวิตช์ถูกกด (HIGH) ให้เปิดโซลินอยด์และมอเตอร์
+    if (switchState == HIGH) {
+        controlSolenoid(true);  // เปิดโซลินอยด์
+        controlMotor(255);  
+        digitalWrite(IN,HIGH);    // ควบคุมมอเตอร์ที่ความเร็ว 150 (0-255)
+    }
+
+      if(pressure >=70)
+      {
+        controlMotor(0);
+        digitalWrite(IN,HIGH);
+      }
+     if (pressure >= 70) {
+        if (!isPressureHigh) {
+            isPressureHigh = true;
+            pressureReachedTime = millis();
+        }
+    }
+
+    if (isPressureHigh && millis() - pressureReachedTime >= 40000) {
+        controlSolenoid(false);
+        controlMotor(0);
+        digitalWrite(IN, LOW);
+        isPressureHigh = false;
+    }
+
+    // อ่านค่าจากเซ็นเซอร์ HX710
+    
+    // แสดงข้อมูลบนจอ OLED
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setCursor(0, 10);
+    display.println(F("RAW ADC: "));
+    display.setCursor(0, 30);
+    display.println(F("Pressure: "));
+
+    display.setTextSize(1);
+    display.setCursor(70, 10);
+    display.print(rawValue);
+
+    display.setTextSize(1);
+    display.setCursor(70, 30);
+    display.print(pressure);
+
+    // แสดงข้อมูลใน Serial Monitor
+    Serial.print("RAW ADC Value: ");
+    Serial.print(rawValue);
+    Serial.print(" | Pressure: ");
+    Serial.print(pressure, 2);
+    Serial.println(" mmHg");
+
+    display.display();
+
+    delay(100);
+   
+} 
+
+
+
+2
+#include <Arduino.h>
+#include <Adafruit_SSD1306.h>
+
+#define RED_BUTTON 11
+#define BLUE_BUTTON 12
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+#define DT 4
+#define SCK 5  // พินเซ็นเซอร์วัดแรงดัน
+const int ENA = 9;  // พินมอเตอร์ (ควบคุมปั๊มลม)
+const int IN1 = 8;
+const int IN2 = 7;
+
+float scaleFactor = 40.0 / 16777216.0; // สเกลแปลงค่า ADC -> mmHg
+//const float offset = 19.491;  // ค่า Offset สำหรับศูนย์แรงดัน
+
+int valveFlagUp = 1;
+float sensorValue = 0;
+float p_mmHg = 0; 
+const float offset = 0; // ปรับค่าตามการเทียบแรงดันจริง
+
+unsigned long previousMillis = 0;
+const long interval = 100; // อัปเดตทุก 100ms
+
+// ฟังก์ชันอ่านค่าจากเซ็นเซอร์ HX710
+long readHX710() {
+    long count = 0;
+    pinMode(DT, INPUT);
+    for (int i = 0; i < 24; i++) {
+        digitalWrite(SCK, HIGH);
+        delayMicroseconds(1);
+        count = count << 1;
+        digitalWrite(SCK, LOW);
+        if (digitalRead(DT)) count++;
+    }
+    digitalWrite(SCK, HIGH);
+    delayMicroseconds(1);
+    digitalWrite(SCK, LOW);
+    return count;
+}
+
+void setup() {
+    Serial.begin(9600);
+    pinMode(ENA, OUTPUT);
+    pinMode(IN1, OUTPUT);
+    pinMode(IN2, OUTPUT);
+    pinMode(SCK, OUTPUT);
+    //pinMode(RED_BUTTON, INPUT);
+    //pinMode(BLUE_BUTTON, OUTPUT);
+
+    if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+        Serial.println(F("OLED ไม่สามารถเริ่มต้นได้!"));
+        while (true);
+    }
+    display.clearDisplay();
+}
+
+void loop() {
+    if (digitalRead(RED_BUTTON) == HIGH) {  // ถ้ากดปุ่มแดง
+        digitalWrite(IN1, HIGH);  // ✅ เปิดมอเตอร์
+        digitalWrite(IN2, LOW);
+        digitalWrite(ENA, 255);
+        Serial.println("Motor ON (Pumping air...)");
+
+        while (valveFlagUp == 1) {
+            unsigned long currentMillis = millis();
+            if (currentMillis - previousMillis >= interval) {
+                previousMillis = currentMillis;
+
+                // ✅ อ่านค่าจากเซ็นเซอร์ HX710
+                long rawValue = readHX710();
+                p_mmHg = ((rawValue * scaleFactor) - offset);
+
+                // ✅ แสดงผล Serial Monitor
+                Serial.print("Time: ");
+                Serial.print(currentMillis / 100);
+                Serial.print(" s, Pressure: ");
+                Serial.println(p_mmHg, 2);
+
+                // ✅ แสดงผล OLED
+                display.clearDisplay();
+                display.setCursor(0, 0);
+                display.print("Time: ");
+                display.println(currentMillis / 100);
+                display.print("Pressure: ");
+                display.println(p_mmHg, 2);
+                display.display();
+
+                // ✅ เช็คค่าแรงดันเพื่อตัดวาล์ว
+                if (p_mmHg >= 60) {
+                    Serial.println("Pressure reached 60 mmHg, stopping motor.");
+                    valveFlagUp = 0;
+                }
+            }
+        }
+
+        // ✅ ปิดมอเตอร์เมื่อถึงแรงดันที่ต้องการ
+        digitalWrite(IN1, LOW);
+        digitalWrite(IN2, LOW);
+        digitalWrite(ENA, 255);
+        digitalWrite(BLUE_BUTTON, LOW);
+        Serial.println("Motor OFF (Pressure limit reached)");
+    }
+}
+
+
+อันที่เหมือนจะได้จ้า  3
+
+#include <Arduino.h>
+#include <Adafruit_SSD1306.h>
+
+#define RED_BUTTON 11
+#define BLUE_BUTTON 12
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+#define DT 4
+#define SCK 5  // พินเซ็นเซอร์วัดแรงดัน
+const int ENA = 9;  // พินมอเตอร์ (ควบคุมปั๊มลม)
+const int IN1 = 8;
+const int IN2 = 7;
+
+float scaleFactor = 40.0 / 16777216.0; // สเกลแปลงค่า ADC -> mmHg
+//const float offset = 19.491;  // ค่า Offset สำหรับศูนย์แรงดัน
+
+int valveFlagUp = 1;
+float sensorValue = 0;
+float p_mmHg = 0; 
+const float offset = 0; // ปรับค่าตามการเทียบแรงดันจริง
+
+unsigned long previousMillis = 0;
+const long interval = 100; // อัปเดตทุก 100ms
+
+// ฟังก์ชันอ่านค่าจากเซ็นเซอร์ HX710
+long readHX710() {
+    long count = 0;
+    pinMode(DT, INPUT);
+    for (int i = 0; i < 24; i++) {
+        digitalWrite(SCK, HIGH);
+        delayMicroseconds(1);
+        count = count << 1;
+        digitalWrite(SCK, LOW);
+        if (digitalRead(DT)) count++;
+    }
+    digitalWrite(SCK, HIGH);
+    delayMicroseconds(1);
+    digitalWrite(SCK, LOW);
+    return count;
+}
+
+void setup() {
+    Serial.begin(9600);
+    pinMode(ENA, OUTPUT);
+    pinMode(IN1, OUTPUT);
+    pinMode(IN2, OUTPUT);
+    pinMode(SCK, OUTPUT);
+    //pinMode(RED_BUTTON, INPUT);
+    //pinMode(BLUE_BUTTON, OUTPUT);
+
+    if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+        Serial.println(F("OLED ไม่สามารถเริ่มต้นได้!"));
+        while (true);
+    }
+    display.clearDisplay();
+}
+
+void loop() {
+    if (digitalRead(RED_BUTTON) == HIGH) {  // ถ้ากดปุ่มแดง
+        digitalWrite(IN1, HIGH);  // ✅ เปิดมอเตอร์
+        digitalWrite(IN2, LOW);
+        digitalWrite(ENA, 255);
+        Serial.println("Motor ON (Pumping air...)");
+
+        while (valveFlagUp == 1) {
+            unsigned long currentMillis = millis();
+            if (currentMillis - previousMillis >= interval) {
+                previousMillis = currentMillis;
+
+                // ✅ อ่านค่าจากเซ็นเซอร์ HX710
+                long rawValue = readHX710();
+                p_mmHg = ((rawValue * scaleFactor) - offset);
+
+                // ✅ แสดงผล Serial Monitor
+                Serial.print("Time: ");
+                Serial.print(currentMillis / 100);
+                Serial.print(" s, Pressure: ");
+                Serial.println(p_mmHg, 2);
+
+                // ✅ แสดงผล OLED
+                display.clearDisplay();
+                display.setCursor(0, 0);
+                display.print("Time: ");
+                display.println(currentMillis / 100);
+                display.print("Pressure: ");
+                display.println(p_mmHg, 2);
+                display.display();
+
+                // ✅ เช็คค่าแรงดันเพื่อตัดวาล์ว
+                if (p_mmHg >= 60) {
+                    Serial.println("Pressure reached 60 mmHg, stopping motor.");
+                    valveFlagUp = 0;
+                }
+            }
+        }
+
+        // ✅ ปิดมอเตอร์เมื่อถึงแรงดันที่ต้องการ
+        digitalWrite(IN1, LOW);
+        digitalWrite(IN2, LOW);
+        digitalWrite(ENA, 255);
+        digitalWrite(BLUE_BUTTON, LOW);
+        Serial.println("Motor OFF (Pressure limit reached)");
+    }
+}
