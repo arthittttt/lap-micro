@@ -1,0 +1,227 @@
+#include <Arduino.h>
+#include <Adafruit_SSD1306.h>
+
+#define RED_BUTTON 11
+#define BLUE_BUTTON 12
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+#define SOLENOID_VALVE 6 // พินควบคุมวาล์วโซลินอยด์
+
+
+#define DT 4
+#define SCK 5  // พินเซ็นเซอร์วัดแรงดัน
+const int ENA = 9;  // พินมอเตอร์ (ควบคุมปั๊มลม)
+const int IN1 = 8;
+const int IN2 = 7;
+const int RELAY_PIN = 13;
+
+float scaleFactor = 40.0 / 16777216.0; // สเกลแปลงค่า ADC -> mmHg
+const float offset = 4.541;  // ค่า Offset สำหรับศูนย์แรงดัน
+bool isMotorRunning = false;  // ✅ ตัวแปรสถานะของมอเตอร์
+float p_mmHg = 0; 
+bool isValveClosed = false; // ตัวแปรสถานะวาล์ว
+unsigned long valveCloseTime = 0; // เวลาเริ่มปิดวาล์ว
+bool isHoldingPressure = false; // สถานะค้างแรงดัน
+unsigned long holdStartTime = 0; // เวลาที่เริ่มค้างแรงดัน
+
+//int valveFlagUp = 1;
+//float sensorValue = 0;
+//float p_mmHg = 0; 
+//const float offset = 0; // ปรับค่าตามการเทียบแรงดันจริง
+
+//unsigned long previousMillis = 0;
+//const long interval = 100; // อัปเดตทุก 100ms
+
+//int valveFlagUp = 1; // ให้มอเตอร์เริ่มทำงานใหม่ในทุกครั้งที่กดปุ่ม
+
+
+// ฟังก์ชันอ่านค่าจากเซ็นเซอร์ HX710
+long readHX710() {
+    long count = 0;
+    pinMode(DT, INPUT);
+    for (int i = 0; i < 24; i++) {
+        digitalWrite(SCK, HIGH);
+        delayMicroseconds(1);
+        count = count << 1;
+        digitalWrite(SCK, LOW);
+        if (digitalRead(DT)) count++;
+    }
+    digitalWrite(SCK, HIGH);
+    delayMicroseconds(1);
+    digitalWrite(SCK, LOW);
+    return count;
+}
+
+void setup() {
+    Serial.begin(9600);
+    pinMode(ENA, OUTPUT);
+    pinMode(IN1, OUTPUT);
+    pinMode(IN2, OUTPUT);
+    pinMode(SCK, OUTPUT);
+    pinMode(RED_BUTTON, INPUT_PULLUP);
+    pinMode(BLUE_BUTTON, INPUT_PULLUP);
+    pinMode(SOLENOID_VALVE, OUTPUT); // ตั้งค่าวาล์วเป็นเอาต์พุต
+    digitalWrite(SOLENOID_VALVE, HIGH); // เริ่มต้นให้วาล์วเปิด
+
+}
+
+
+void loop() {
+    // อ่านค่าจากเซ็นเซอร์
+    long rawValue = readHX710();
+    p_mmHg = ((rawValue * scaleFactor) - offset);
+
+    // แสดงค่าแรงดันทาง Serial Monitor
+   // Serial.print("Pressure: ");
+    Serial.println(p_mmHg, 2);
+   // Serial.println(" mmHg");
+    
+    // กดปุ่มแดงเพื่อเปิดมอเตอร์
+    if (digitalRead(RED_BUTTON) == HIGH) {  // ถ้ากดปุ่มแดง
+        if (!isMotorRunning) {  // เช็คว่ามอเตอร์ยังไม่ได้ทำงาน
+        digitalWrite(IN1, HIGH);  // ✅ เปิดมอเตอร์
+        digitalWrite(IN2, LOW);
+        analogWrite(ENA, 255);
+        isMotorRunning = true;
+        Serial.println("Motor ON (Pumping air...)");
+
+        // ปิดวาล์วทันทีเมื่อกดปุ่ม
+        digitalWrite(SOLENOID_VALVE, LOW); // ปิดวาล์ว (ลมไม่ออกจาก Cuff)
+        isValveClosed = true;
+        Serial.println("Solenoid Valve CLOSED (Button Pressed)");
+    }
+    delay(300); // ป้องกันการอ่านค่าซ้ำจากเด้งของปุ่ม (debounce)
+}
+
+/*
+if (digitalRead(BLUE_BUTTON) == LOW) { // กดปุ่มฟ้าเพื่อปิดมอเตอร์
+    if (isMotorRunning) {  // เช็คว่ามอเตอร์กำลังทำงาน
+        digitalWrite(IN1, LOW);
+        digitalWrite(IN2, LOW);
+        analogWrite(ENA, 0); // ปิดมอเตอร์
+        isMotorRunning = false;
+        Serial.println("Motor OFF");
+    }
+    delay(300); // ป้องกันการอ่านค่าซ้ำจากเด้งของปุ่ม (debounce)
+}
+*/
+
+// หยุดมอเตอร์อัตโนมัติเมื่อความดันถึง 15 mmHg
+if (isMotorRunning && p_mmHg >= 15) {
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, LOW);
+    analogWrite(ENA, 0); // ปิดมอเตอร์
+    isMotorRunning = false;
+    Serial.println("Motor OFF (Pressure Limit Reached)");
+}
+
+// ค้างลมไว้ 40 วินาทีเมื่อถึง 10 mmHg
+if (p_mmHg <= 10 && !isHoldingPressure) {
+    isHoldingPressure = true;
+    isValveClosed = true;
+    valveCloseTime = millis(); // บันทึกเวลาเริ่มค้างลม
+    Serial.println("Holding Pressure for 40s...");
+
+    // **ปิดวาล์วต่อไป (ลมไม่ออก)**
+    digitalWrite(SOLENOID_VALVE, LOW);
+    Serial.println("Solenoid Valve STILL CLOSED");
+}
+
+ // เมื่อครบ 40 วินาที วาล์วยังคงปิดอยู่
+ if (isHoldingPressure && millis() - valveCloseTime >= 40000) { 
+    digitalWrite(SOLENOID_VALVE, HIGH); // เปิดวาล์ว (ลมออกจาก Cuff ได้)
+    Serial.println("40s Hold Complete - Valve remains CLOSED");
+    isHoldingPressure = false;
+}
+
+
+// กดปุ่มฟ้าเพื่อเปิดวาล์ว (ปล่อยลมออก)
+if (digitalRead(BLUE_BUTTON) == LOW ) {
+    digitalWrite(SOLENOID_VALVE, HIGH); // เปิดวาล์ว (ลมออกจาก Cuff ได้)
+    isValveClosed = false;
+    Serial.println("Solenoid Valve OPEN (Manual Release)");
+}
+ // ✅ **ปล่อยลมออกเมื่อกดปุ่ม BLUE_BUTTON**
+ if (digitalRead(BLUE_BUTTON) == LOW) {
+    Serial.println("BLUE BUTTON PRESSED - Releasing Air...");
+    digitalWrite(SOLENOID_VALVE, HIGH); // เปิดวาล์ว (ปล่อยลมออก)
+    isValveClosed = false;
+    delay(300);
+}
+
+
+
+delay(100); // หน่วงเวลาเพื่ออ่านค่าความดันใหม่
+}
+
+
+        //while (valveFlagUp == 1) {
+            //unsigned long currentMillis = millis();
+           // if (currentMillis - previousMillis >= interval) {
+               // previousMillis = currentMillis;
+
+                // ✅ อ่านค่าจากเซ็นเซอร์ HX710
+                //long rawValue = readHX710();
+                //p_mmHg = ((rawValue * scaleFactor) - offset);
+
+                // ✅ แสดงผล Serial Monitor
+                //Serial.print("Time: ");
+                //Serial.print(currentMillis / 100); Serial.print(" ");
+                //Serial.print(" s, Pressure: ");
+               // Serial.println(p_mmHg, 2);
+
+                // ✅ แสดงผล OLED
+                //display.clearDisplay();
+                //display.setCursor(0, 0);
+                //display.print("Time: ");
+                //display.println(currentMillis / 100);
+                //display.print("Pressure: ");
+                //display.println(p_mmHg, 2);
+                //display.display();
+
+                // ✅ เช็คค่าแรงดันเพื่อตัดวาล์ว
+                          
+           // }
+            //if (p_mmHg >= 15) {
+               // Serial.println("Pressure reached 15 mmHg, stopping motor.");
+                //valveFlagUp = 0;
+            //}
+        //}
+        
+        //unsigned long currentMillis = millis();
+           // if (currentMillis - previousMillis >= interval) {
+               // previousMillis = currentMillis;
+
+                // ✅ อ่านค่าจากเซ็นเซอร์ HX710
+              //  long rawValue = readHX710();
+               // p_mmHg = ((rawValue * scaleFactor) - offset);
+                
+                //Serial.print(currentMillis / 100.0, 1); Serial.print(" ");
+                //Serial.println(p_mmHg, 2);
+
+       // }
+     
+     // ✅ ตรวจสอบว่าถึงแรงดัน 10 mmHg และต้องหยุดมอเตอร์หรือไม่
+     //if (isMotorRunning && p_mmHg <= 10) {
+       // digitalWrite(IN1, LOW);
+       // digitalWrite(IN2, LOW);
+       // analogWrite(ENA, 0); // ✅ ปิดมอเตอร์
+       // isMotorRunning = false; // ✅ ตั้งค่าให้มอเตอร์หยุดทำงาน
+       // Serial.println("Motor OFF (Pressure limit reached)");
+
+       // valveFlagUp = 1; // ให้มอเตอร์เริ่มทำงานใหม่ในทุกครั้งที่กดปุ่ม
+
+       // ✅ ปิดมอเตอร์เมื่อถึงแรงดันที่ต้องการ
+       // digitalRead(BLUE_BUTTON) == LOW;
+   
+    //digitalWrite(BLUE_BUTTON, LOW);
+    //Serial.println("Motor OFF (Pressure limit reached)");
+    
+    //} 
+   // }
+//}
+        
+    
+ 
